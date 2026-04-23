@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>trainer — riccardo merlotti</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      width: 100%;
+      min-height: 100vh;
+      background: #fff;
+      color: #111;
+      font-family: 'EB Garamond', serif;
+      font-size: 14px;
+      overscroll-behavior: none;
+    }
+
+    body {
+      padding: 24px 28px 80px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    header h1 { font-size: 16px; font-weight: 400; }
+    header p { margin-top: 4px; color: #666; line-height: 1.4; }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding: 12px;
+      border: 1px solid #ddd;
+    }
+
+    .glyph-btn {
+      width: 32px;
+      height: 32px;
+      border: 1px solid #ccc;
+      background: #fff;
+      font-family: inherit;
+      font-size: 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .glyph-btn:hover { background: #f4f4f4; }
+    .glyph-btn.active { background: #111; color: #fff; border-color: #111; }
+    .glyph-btn.has-templates { border-color: #00a050; }
+    .glyph-btn .count {
+      position: absolute;
+      font-size: 9px;
+      background: #00a050;
+      color: #fff;
+      border-radius: 50%;
+      width: 14px;
+      height: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-left: 24px;
+      margin-top: -24px;
+    }
+
+    .stage {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .current-label {
+      font-size: 14px;
+      color: #666;
+    }
+    .current-label strong {
+      font-weight: 400;
+      color: #111;
+      font-size: 48px;
+      display: block;
+      line-height: 1;
+      margin-top: 4px;
+    }
+
+    #pad {
+      width: 100%;
+      aspect-ratio: 1;
+      max-width: 500px;
+      border: 1px solid #111;
+      display: block;
+      touch-action: none;
+      background: #fff;
+    }
+
+    .pad-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .pad-actions button {
+      font-family: inherit;
+      font-size: 14px;
+      padding: 8px 14px;
+      border: 1px solid #111;
+      background: #fff;
+      cursor: pointer;
+    }
+    .pad-actions button:hover { background: #f0f0f0; }
+    .pad-actions button.primary { background: #111; color: #fff; }
+    .pad-actions button.primary:hover { background: #333; }
+    .pad-actions button.danger { border-color: #c00; color: #c00; }
+
+    .templates-list {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      padding: 8px 0;
+    }
+    .template-preview {
+      width: 60px;
+      height: 60px;
+      border: 1px solid #ccc;
+      position: relative;
+      background: #fafafa;
+    }
+    .template-preview svg { width: 100%; height: 100%; }
+    .template-preview button {
+      position: absolute;
+      top: 2px;
+      right: 2px;
+      width: 16px;
+      height: 16px;
+      border: none;
+      background: #c00;
+      color: #fff;
+      cursor: pointer;
+      font-size: 10px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .export {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding-top: 12px;
+      border-top: 1px solid #ddd;
+    }
+
+    .status {
+      font-size: 12px;
+      color: #666;
+      padding: 4px 0;
+    }
+    .status.ok { color: #00a050; }
+    .status.err { color: #c00; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>trainer $P — template recorder</h1>
+    <p>seleziona un glifo, disegnalo 2-3 volte nel quadrato, poi premi "salva template". quando hai finito, clicca "esporta templates.json" e metti il file accanto a index.html.</p>
+  </header>
+
+  <div class="controls" id="glyph-grid"></div>
+
+  <div class="stage">
+    <div class="current-label">
+      glifo corrente: <strong id="current-glyph">—</strong>
+    </div>
+
+    <canvas id="pad" width="500" height="500"></canvas>
+
+    <div class="pad-actions">
+      <button id="btn-save" class="primary">salva template</button>
+      <button id="btn-clear">pulisci</button>
+    </div>
+
+    <div class="status" id="status">&nbsp;</div>
+
+    <div class="templates-list" id="templates-list"></div>
+  </div>
+
+  <div class="export">
+    <button id="btn-export" class="primary">esporta templates.json</button>
+    <button id="btn-import">importa templates.json</button>
+    <button id="btn-reset" class="danger">cancella tutto</button>
+    <input type="file" id="file-input" accept=".json" style="display:none">
+  </div>
+
+<script>
+  // ─────────────────────────────────────────────────────────────
+  // $P Point-Cloud Recognizer
+  // Based on Vatavu, Anthony & Wobbrock (ICMI 2012)
+  // Simplified JS implementation; works for unistroke AND multistroke.
+  // ─────────────────────────────────────────────────────────────
+  const NumPoints = 32;
+  const Origin = { X: 0, Y: 0 };
+
+  function Point(x, y, id) { this.X = x; this.Y = y; this.ID = id; }
+
+  function PointCloud(name, points) {
+    this.Name = name;
+    this.Points = Resample(points, NumPoints);
+    this.Points = Scale(this.Points);
+    this.Points = TranslateTo(this.Points, Origin);
+  }
+
+  function PDollarRecognizer() {
+    this.PointClouds = [];
+
+    this.Recognize = function(points) {
+      if (this.PointClouds.length === 0) return { Name: null, Score: 0 };
+      points = Resample(points, NumPoints);
+      points = Scale(points);
+      points = TranslateTo(points, Origin);
+
+      let b = +Infinity;
+      let u = -1;
+      for (let i = 0; i < this.PointClouds.length; i++) {
+        const d = GreedyCloudMatch(points, this.PointClouds[i]);
+        if (d < b) { b = d; u = i; }
+      }
+      return (u === -1)
+        ? { Name: null, Score: 0 }
+        : { Name: this.PointClouds[u].Name, Score: Math.max((b - 2.0) / -2.0, 0.0) };
+    };
+
+    this.AddPointCloud = function(name, points) {
+      this.PointClouds.push(new PointCloud(name, points));
+    };
+  }
+
+  function GreedyCloudMatch(points, P) {
+    const e = 0.50;
+    const step = Math.floor(Math.pow(points.length, 1.0 - e));
+    let min = +Infinity;
+    for (let i = 0; i < points.length; i += step) {
+      const d1 = CloudDistance(points, P.Points, i);
+      const d2 = CloudDistance(P.Points, points, i);
+      min = Math.min(min, Math.min(d1, d2));
+    }
+    return min;
+  }
+
+  function CloudDistance(pts1, pts2, start) {
+    const matched = new Array(pts1.length).fill(false);
+    let sum = 0;
+    let i = start;
+    do {
+      let index = -1;
+      let min = +Infinity;
+      for (let j = 0; j < matched.length; j++) {
+        if (!matched[j]) {
+          const d = Distance(pts1[i], pts2[j]);
+          if (d < min) { min = d; index = j; }
+        }
+      }
+      matched[index] = true;
+      const weight = 1 - ((i - start + pts1.length) % pts1.length) / pts1.length;
+      sum += weight * min;
+      i = (i + 1) % pts1.length;
+    } while (i !== start);
+    return sum;
+  }
+
+  function Resample(points, n) {
+    const I = PathLength(points) / (n - 1);
+    let D = 0.0;
+    const newpoints = [points[0]];
+    for (let i = 1; i < points.length; i++) {
+      if (points[i].ID === points[i - 1].ID) {
+        const d = Distance(points[i - 1], points[i]);
+        if ((D + d) >= I) {
+          const qx = points[i - 1].X + ((I - D) / d) * (points[i].X - points[i - 1].X);
+          const qy = points[i - 1].Y + ((I - D) / d) * (points[i].Y - points[i - 1].Y);
+          const q = new Point(qx, qy, points[i].ID);
+          newpoints.push(q);
+          points.splice(i, 0, q);
+          D = 0.0;
+        } else D += d;
+      }
+    }
+    if (newpoints.length === n - 1) {
+      newpoints.push(new Point(points[points.length - 1].X, points[points.length - 1].Y, points[points.length - 1].ID));
+    }
+    return newpoints;
+  }
+
+  function Scale(points) {
+    let minX = +Infinity, maxX = -Infinity, minY = +Infinity, maxY = -Infinity;
+    for (const p of points) {
+      minX = Math.min(minX, p.X); minY = Math.min(minY, p.Y);
+      maxX = Math.max(maxX, p.X); maxY = Math.max(maxY, p.Y);
+    }
+    const size = Math.max(maxX - minX, maxY - minY);
+    return points.map(p => new Point((p.X - minX) / size, (p.Y - minY) / size, p.ID));
+  }
+
+  function TranslateTo(points, pt) {
+    const c = Centroid(points);
+    return points.map(p => new Point(p.X + pt.X - c.X, p.Y + pt.Y - c.Y, p.ID));
+  }
+
+  function Centroid(points) {
+    let x = 0, y = 0;
+    for (const p of points) { x += p.X; y += p.Y; }
+    return { X: x / points.length, Y: y / points.length };
+  }
+
+  function PathLength(points) {
+    let d = 0;
+    for (let i = 1; i < points.length; i++) {
+      if (points[i].ID === points[i - 1].ID) d += Distance(points[i - 1], points[i]);
+    }
+    return d;
+  }
+
+  function Distance(p1, p2) {
+    const dx = p2.X - p1.X, dy = p2.Y - p1.Y;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Trainer UI
+  // ─────────────────────────────────────────────────────────────
+  const UPPER   = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+  const LOWER   = 'abcdefghijklmnopqrstuvwxyz'.split('');
+  const DIGITS  = '0123456789'.split('');
+  const SYMBOLS = '&@!?#'.split('');
+  const ALL_GLYPHS = [...UPPER, ...LOWER, ...DIGITS, ...SYMBOLS];
+
+  const STORAGE_KEY = 'merlotti-pdollar-templates';
+
+  // templates: { "<glyph>": [ [ {X,Y,ID}, ... ], ... ] }
+  let templates = loadFromStorage();
+  let currentGlyph = 'A';
+  let currentStrokes = []; // array of strokes, each is array of Points
+  let strokeID = 0;
+  let drawing = false;
+
+  const grid = document.getElementById('glyph-grid');
+  const currentLabel = document.getElementById('current-glyph');
+  const pad = document.getElementById('pad');
+  const ctx = pad.getContext('2d');
+  const statusEl = document.getElementById('status');
+  const templatesListEl = document.getElementById('templates-list');
+
+  function loadFromStorage() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch (e) {}
+    return {};
+  }
+
+  function saveToStorage() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(templates)); }
+    catch (e) {}
+  }
+
+  function buildGrid() {
+    grid.innerHTML = '';
+    ALL_GLYPHS.forEach(g => {
+      const b = document.createElement('button');
+      b.className = 'glyph-btn';
+      b.textContent = g;
+      if (g === currentGlyph) b.classList.add('active');
+      const count = (templates[g] || []).length;
+      if (count > 0) {
+        b.classList.add('has-templates');
+        const badge = document.createElement('span');
+        badge.className = 'count';
+        badge.textContent = count;
+        b.appendChild(badge);
+      }
+      b.addEventListener('click', () => selectGlyph(g));
+      grid.appendChild(b);
+    });
+  }
+
+  function selectGlyph(g) {
+    currentGlyph = g;
+    currentLabel.textContent = g;
+    clearPad();
+    buildGrid();
+    renderTemplatesList();
+  }
+
+  function clearPad() {
+    currentStrokes = [];
+    strokeID = 0;
+    ctx.clearRect(0, 0, pad.width, pad.height);
+    setStatus('');
+  }
+
+  function setStatus(msg, cls = '') {
+    statusEl.textContent = msg || '\u00A0';
+    statusEl.className = 'status ' + cls;
+  }
+
+  function renderTemplatesList() {
+    templatesListEl.innerHTML = '';
+    const list = templates[currentGlyph] || [];
+    list.forEach((pts, idx) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'template-preview';
+      wrap.appendChild(renderStrokesSVG(pts));
+      const del = document.createElement('button');
+      del.textContent = '×';
+      del.addEventListener('click', () => {
+        templates[currentGlyph].splice(idx, 1);
+        if (templates[currentGlyph].length === 0) delete templates[currentGlyph];
+        saveToStorage();
+        buildGrid();
+        renderTemplatesList();
+      });
+      wrap.appendChild(del);
+      templatesListEl.appendChild(wrap);
+    });
+  }
+
+  function renderStrokesSVG(points) {
+    // points is flat array of {X,Y,ID} from all strokes combined
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 500 500');
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const p of points) {
+      if (p.X < minX) minX = p.X;
+      if (p.X > maxX) maxX = p.X;
+      if (p.Y < minY) minY = p.Y;
+      if (p.Y > maxY) maxY = p.Y;
+    }
+    const pad = 20;
+    const w = maxX - minX || 1;
+    const h = maxY - minY || 1;
+    const scale = (500 - pad * 2) / Math.max(w, h);
+    const offX = pad + (500 - pad * 2 - w * scale) / 2;
+    const offY = pad + (500 - pad * 2 - h * scale) / 2;
+
+    // group by stroke ID
+    const byId = {};
+    for (const p of points) {
+      if (!byId[p.ID]) byId[p.ID] = [];
+      byId[p.ID].push(p);
+    }
+    Object.values(byId).forEach(stroke => {
+      let d = '';
+      stroke.forEach((p, i) => {
+        const x = offX + (p.X - minX) * scale;
+        const y = offY + (p.Y - minY) * scale;
+        d += (i === 0 ? 'M' : 'L') + x + ' ' + y + ' ';
+      });
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', d);
+      path.setAttribute('stroke', '#111');
+      path.setAttribute('stroke-width', '6');
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke-linecap', 'round');
+      path.setAttribute('stroke-linejoin', 'round');
+      svg.appendChild(path);
+    });
+    return svg;
+  }
+
+  // ── drawing on canvas ────────────────────────────────────────
+  function getPos(e) {
+    const rect = pad.getBoundingClientRect();
+    const t = e.touches ? e.touches[0] : e;
+    const scaleX = pad.width / rect.width;
+    const scaleY = pad.height / rect.height;
+    return {
+      x: (t.clientX - rect.left) * scaleX,
+      y: (t.clientY - rect.top) * scaleY
+    };
+  }
+
+  function startDraw(e) {
+    e.preventDefault();
+    drawing = true;
+    strokeID++;
+    const { x, y } = getPos(e);
+    currentStrokes.push([new Point(x, y, strokeID)]);
+    ctx.strokeStyle = '#111';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+  }
+
+  function moveDraw(e) {
+    if (!drawing) return;
+    e.preventDefault();
+    const { x, y } = getPos(e);
+    currentStrokes[currentStrokes.length - 1].push(new Point(x, y, strokeID));
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  }
+
+  function endDraw(e) {
+    if (!drawing) return;
+    e.preventDefault();
+    drawing = false;
+  }
+
+  pad.addEventListener('mousedown', startDraw);
+  pad.addEventListener('mousemove', moveDraw);
+  pad.addEventListener('mouseup', endDraw);
+  pad.addEventListener('mouseleave', endDraw);
+  pad.addEventListener('touchstart', startDraw, { passive: false });
+  pad.addEventListener('touchmove', moveDraw, { passive: false });
+  pad.addEventListener('touchend', endDraw, { passive: false });
+  pad.addEventListener('touchcancel', endDraw, { passive: false });
+
+  // ── buttons ──────────────────────────────────────────────────
+  document.getElementById('btn-save').addEventListener('click', () => {
+    if (currentStrokes.length === 0) {
+      setStatus('disegna prima un glifo', 'err');
+      return;
+    }
+    // flatten strokes into one array of points (with ID preserved)
+    const flat = currentStrokes.flat();
+    if (flat.length < 8) {
+      setStatus('troppo pochi punti, riprova', 'err');
+      return;
+    }
+    if (!templates[currentGlyph]) templates[currentGlyph] = [];
+    templates[currentGlyph].push(flat.map(p => ({ X: p.X, Y: p.Y, ID: p.ID })));
+    saveToStorage();
+    clearPad();
+    buildGrid();
+    renderTemplatesList();
+    setStatus('salvato ✓', 'ok');
+  });
+
+  document.getElementById('btn-clear').addEventListener('click', clearPad);
+
+  document.getElementById('btn-export').addEventListener('click', () => {
+    const count = Object.values(templates).reduce((s, a) => s + a.length, 0);
+    if (count === 0) {
+      setStatus('nessun template da esportare', 'err');
+      return;
+    }
+    const blob = new Blob([JSON.stringify(templates, null, 0)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'templates.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    setStatus(`esportati ${count} template`, 'ok');
+  });
+
+  document.getElementById('btn-import').addEventListener('click', () => {
+    document.getElementById('file-input').click();
+  });
+
+  document.getElementById('file-input').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        templates = JSON.parse(ev.target.result);
+        saveToStorage();
+        buildGrid();
+        renderTemplatesList();
+        setStatus('importato', 'ok');
+      } catch (err) {
+        setStatus('file non valido', 'err');
+      }
+    };
+    reader.readAsText(file);
+  });
+
+  document.getElementById('btn-reset').addEventListener('click', () => {
+    if (!confirm('cancellare TUTTI i template?')) return;
+    templates = {};
+    saveToStorage();
+    buildGrid();
+    renderTemplatesList();
+    clearPad();
+    setStatus('tutto cancellato', 'ok');
+  });
+
+  // init
+  selectGlyph(currentGlyph);
+</script>
+</body>
+</html>
