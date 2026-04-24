@@ -4,9 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>riccardo merlotti</title>
-  <link rel="icon" type="image/svg+xml" href="favicon-P.svg">
-  <link rel="icon" type="image/png" href="favicon-P.png">
-  <link rel="apple-touch-icon" href="favicon-P.png">
+  <link rel="icon" type="image/svg+xml" href="favicon-tt.svg">
+  <link rel="icon" type="image/png" href="favicon-tt.png">
+  <link rel="apple-touch-icon" href="favicon-tt.png">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -395,7 +395,7 @@
   const FONTS = [
     { family: 'Villette',     label: 'Villette Variabile', weightMin: 100, weightMax: 900 },
     { family: 'Matrice Mono', label: 'Matrice Mono',       weightMin: 100, weightMax: 800 },
-    /*{ family: 'Merlini',      label: 'Merlini',            weightMin: 400, weightMax: 400 },*/
+    { family: 'Merlini',      label: 'Merlini',            weightMin: 400, weightMax: 400 },
     { family: 'Eras',         label: 'Sera (WIP)',         weightMin: 400, weightMax: 400 },
   ];
 
@@ -486,19 +486,29 @@
   // Offscreen canvas used to measure the *actual painted* bounding box of a glyph
   // for a given font/weight/size — this is more accurate than element.getBoundingClientRect()
   // which uses the em-box (and clips tall glyphs like extrabold 't' in Villette).
+  // NOTE: on iOS Safari, measureText() returns fallback-font metrics until the
+  // custom font is actually loaded. We force a load via document.fonts.load()
+  // at init time to avoid this.
   const measureCanvas = document.createElement('canvas');
   const measureCtx = measureCanvas.getContext('2d');
+
+  // Extra safety margin (in fraction of font size) added to the measured glyph box.
+  // Some fonts have overshoot outside the official bounding box that measureText
+  // reports, and some platforms (notably iOS Safari) report slightly too-small
+  // bboxes. This padding guarantees no clipping while being invisible.
+  const GLYPH_SAFETY = 0.08; // 8% of font-size on every side
 
   function measureGlyph(char, fontFamily, fontWeight, fontSize) {
     measureCtx.font = `${fontWeight} ${fontSize}px '${fontFamily}', serif`;
     measureCtx.textBaseline = 'alphabetic';
     const m = measureCtx.measureText(char);
+    const pad = fontSize * GLYPH_SAFETY;
     // actualBoundingBox* gives the true pixel extents of the rendered glyph
     // relative to the text origin (x=0 on the baseline).
-    const left   = m.actualBoundingBoxLeft    || 0;
-    const right  = m.actualBoundingBoxRight   || m.width;
-    const asc    = m.actualBoundingBoxAscent  || fontSize * 0.8;
-    const desc   = m.actualBoundingBoxDescent || fontSize * 0.2;
+    const left   = (m.actualBoundingBoxLeft    || 0)         + pad;
+    const right  = (m.actualBoundingBoxRight   || m.width)   + pad;
+    const asc    = (m.actualBoundingBoxAscent  || fontSize * 0.8) + pad;
+    const desc   = (m.actualBoundingBoxDescent || fontSize * 0.2) + pad;
     return {
       left, right, asc, desc,
       width:  left + right,
@@ -534,11 +544,14 @@
     // Then:
     //   glyph-top-relative-to-element-top    = baseline - asc
     //   glyph-bottom-relative-to-element-top = baseline + desc
-    const approxBaseline = size * 0.8;
+    const approxBaseline = size * 0.82;
     const glyphTopOffset    = approxBaseline - g.asc;     // may be negative for tall glyphs
     const glyphBottomOffset = approxBaseline + g.desc;    // glyph bottom from el top
-    const glyphLeftOffset   = 0;                          // glyphs normally start at x=0
-    const glyphRightOffset  = g.width;                    // glyph right from el left
+    // g.left is how far the glyph extends LEFT of the text origin (x=0).
+    // The element's origin IS the text origin, so the glyph's left edge
+    // relative to el-top-left is simply -g.left.
+    const glyphLeftOffset   = -g.left;
+    const glyphRightOffset  = g.right;
 
     // Element's own box dimensions (used only for positioning via left/top).
     // The element may be smaller than the painted glyph; overflow:visible lets
@@ -604,11 +617,10 @@
       const newWeight = pickWeight(font);
       l.el.style.fontFamily = `'${font.family}', serif`;
       l.el.style.fontWeight = newWeight;
-      // re-measure with the new font
       const g = measureGlyph(l.char, font.family, newWeight, l.size);
-      const approxBaseline = l.size * 0.8;
-      l.glyphL = 0;
-      l.glyphR = g.width;
+      const approxBaseline = l.size * 0.82;
+      l.glyphL = -g.left;
+      l.glyphR = g.right;
       l.glyphT = approxBaseline - g.asc;
       l.glyphB = approxBaseline + g.desc;
       l.el.style.width  = g.width + 'px';
@@ -928,6 +940,33 @@
   // ─────────────────────────────────────────────────────────────
   updateFontLabel();
   tick();
+
+  // Force-load all custom fonts into memory so measureText() returns correct
+  // metrics from the very first call (otherwise iOS Safari silently falls back
+  // to the system serif, which has smaller glyph bounds → letters get clipped).
+  // We load a representative weight per font family.
+  async function preloadFonts() {
+    if (!document.fonts || !document.fonts.load) return;
+    const loads = [
+      document.fonts.load('900 100px "Villette"'),
+      document.fonts.load('400 100px "Villette"'),
+      document.fonts.load('800 100px "Matrice Mono"'),
+      document.fonts.load('400 100px "Matrice Mono"'),
+      document.fonts.load('400 100px "Merlini"'),
+      document.fonts.load('400 100px "Eras"'),
+      document.fonts.ready
+    ];
+    try { await Promise.all(loads); }
+    catch (e) { console.warn('[fonts] preload error', e); }
+    // "warm up" the measure canvas with each font so the first real measureText
+    // is instant and consistent
+    ['Villette', 'Matrice Mono', 'Merlini', 'Eras'].forEach(fam => {
+      measureCtx.font = `400 100px '${fam}', serif`;
+      measureCtx.measureText('Mg');
+    });
+    debugLog('fonts preloaded ✓');
+  }
+  preloadFonts();
 </script>
 </body>
 </html>
