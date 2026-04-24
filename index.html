@@ -66,7 +66,7 @@
 
     a, input, textarea, button { cursor: none; }
 
-    /* ── custom cursor (desktop only) ── */
+    /* ── cursore pallina rossa (desktop) ── */
     #cursor {
       position: fixed;
       top: 0;
@@ -89,7 +89,7 @@
       #cursor { display: none; }
     }
 
-    /* ── shared UI text styles ── */
+    /* ── CSS ui ── */
     .ui {
       font-family: 'EB Garamond', serif;
       font-size: 14px;
@@ -98,7 +98,7 @@
       color: #111;
     }
 
-    /* ── top-left block ── */
+    /* ── blocco top-left ── */
     #header {
       position: fixed;
       top: 32px;
@@ -117,7 +117,7 @@
     }
     #header .socials a:hover { opacity: 0.5; }
 
-    /* ── middle-left hint ── */
+    /* ── istruzioni ── */
     #hint {
       position: fixed;
       left: 36px;
@@ -129,7 +129,7 @@
       line-height: 1.5;
     }
 
-    /* ── bottom-left: now showing ── */
+    /* ── bottom-left now showing ── */
     #now-showing {
       position: fixed;
       bottom: 32px;
@@ -141,13 +141,9 @@
     }
     #now-showing .font-name { font-style: italic; }
 
-    /* ── bouncing letters ── */
+    /* ── lettere rimbalzine ── */
     /*
-       Each letter is rendered as a <canvas>, not a <span>. The canvas is
-       sized to the glyph's REAL ink box (measured by pixel scan), and the
-       glyph is painted at the exact position that places ink-top-left at
-       canvas-top-left. This eliminates all CSS baseline mismatches between
-       browsers and platforms.
+       ogni lettera renderizzata come canva e non come box
     */
     .letter {
       position: fixed;
@@ -158,7 +154,7 @@
       transition: opacity 0.5s ease;
     }
 
-    /* ── mobile drawing canvas ── */
+    /* ── canva disegno mobile ── */
     #draw-canvas {
       display: none;
       position: fixed;
@@ -174,7 +170,7 @@
       #now-showing{ bottom: 20px; left: 20px; }
     }
 
-    /* ── debug badge (activated by ?debug=1) ── */
+    /* ── per debug (activated by ?debug=1) ── */
     #debug-badge {
       display: none;
       position: fixed;
@@ -227,7 +223,7 @@
 // ═════════════════════════════════════════════════════════════════════
 // $P POINT-CLOUD RECOGNIZER
 // Vatavu, Anthony & Wobbrock (ICMI 2012).
-// Template-based gesture recognizer; no ML, zero dependencies.
+// Template-based gesture recognizer.
 // ═════════════════════════════════════════════════════════════════════
 const NumPoints = 32;
 const Origin = { X: 0, Y: 0 };
@@ -368,9 +364,9 @@ const FONTS = [
 ];
 
 const SPEED = 1.8;
-const LETTER_TTL = 60000; // ms: letters fade out at their first bounce after this
+const LETTER_TTL = 60000; // lettere scompaiono dopo 60 sec
 
-// Mobile drawing tuning
+// mobile drawing tuning
 const MIN_STROKE_POINTS     = 6;
 const MIN_STROKE_LENGTH     = 30;   // px — below = tap
 const MULTISTROKE_TIMEOUT   = 280;  // ms between strokes in a multistroke glyph
@@ -378,7 +374,7 @@ const DOUBLE_TAP_MS         = 350;
 const DOUBLE_TAP_DIST       = 50;
 const RECOGNITION_THRESHOLD = 0.10;
 
-// Responsive letter size
+// responsive letter size
 function computeSize() {
   const minDim = Math.min(window.innerWidth, window.innerHeight);
   return Math.max(70, Math.min(150, minDim * 0.22));
@@ -388,17 +384,7 @@ function computeSize() {
 // ═════════════════════════════════════════════════════════════════════
 // INK MEASUREMENT
 // ═════════════════════════════════════════════════════════════════════
-// Some fonts (e.g. Villette) have glyphs drawn outside their OpenType
-// bounding box — above the cap-height, below the descender, outside the
-// advance-width. The browser's layout (getBoundingClientRect, measureText)
-// reports the nominal metrics, not the actual ink, so any bounce logic
-// based on them clips the visible glyph.
-//
-// This function paints the glyph onto an offscreen canvas and scans the
-// alpha channel pixel by pixel to find the *real* ink bounding box.
-// Results are: width/height of the ink box, plus the offset (originX, originY)
-// — where we need to fillText() on any canvas so that the resulting ink
-// exactly fills a canvas of size (width, height).
+// misurazione del canva per evitare che Villette sia tagliato.
 // ═════════════════════════════════════════════════════════════════════
 const _inkCanvas = document.createElement('canvas');
 const _inkCtx = _inkCanvas.getContext('2d', { willReadFrequently: true });
@@ -408,11 +394,10 @@ function measureInk(char, family, weight, size) {
   const key = `${char}|${family}|${weight}|${size}`;
   if (_inkCache.has(key)) return _inkCache.get(key);
 
-  // Canvas large enough that any realistic ink excursion fits, with the
-  // text origin placed at (cx, cy) with plenty of room on every side.
+  // regolazione ampiezza canva.
   const S = Math.ceil(size * 3);
   const cx = Math.floor(S / 2);
-  const cy = Math.floor(S * 0.7); // roughly where baseline would sit
+  const cy = Math.floor(S * 0.7); // baseline.
 
   _inkCanvas.width  = S;
   _inkCanvas.height = S;
@@ -424,7 +409,7 @@ function measureInk(char, family, weight, size) {
 
   const img = _inkCtx.getImageData(0, 0, S, S).data;
 
-  // Find tightest bounding rectangle containing any ink pixel.
+  // fit glifo nel canva.
   let minX = S, minY = S, maxX = -1, maxY = -1;
   for (let y = 0; y < S; y++) {
     const row = y * S * 4;
@@ -448,11 +433,8 @@ function measureInk(char, family, weight, size) {
       originY: size * 0.1,
     };
   } else {
-    // The ink box has width = (maxX - minX + 1), height = (maxY - minY + 1).
-    // To redraw the glyph on a fresh canvas of that size, we need to call
-    // fillText with an origin (x, y) such that the glyph's original origin
-    // (cx, cy) maps to (cx - minX, cy - minY) in the new canvas.
-    // Add 1px safety padding on all sides to absorb antialiasing edges.
+    // ink box width = (maxX - minX + 1), height = (maxY - minY + 1).
+    // 1px safety padding.
     const pad = 1;
     result = {
       width:   (maxX - minX + 1) + pad * 2,
@@ -469,10 +451,7 @@ function measureInk(char, family, weight, size) {
 // ═════════════════════════════════════════════════════════════════════
 // PRELOAD FONTS
 // ═════════════════════════════════════════════════════════════════════
-// iOS Safari silently falls back to system serif when measuring glyphs of
-// a custom font that isn't loaded yet. We force-load every font family at
-// a sample weight so the first ink measurement is accurate, then clear any
-// bad cached entries and re-measure already-spawned letters.
+// forzare load per iOS Safari che fa casini con la cache.
 async function preloadFonts() {
   if (!document.fonts || !document.fonts.load) return;
   try {
@@ -554,10 +533,6 @@ if (!isTouchDevice) {
 // ═════════════════════════════════════════════════════════════════════
 // SPAWN & REMOVE LETTERS
 // ═════════════════════════════════════════════════════════════════════
-// Render (or re-render) the glyph onto the letter's own canvas, sized and
-// painted so that the ink fills the canvas exactly from (0,0) to (w,h).
-// This uses the same rendering pipeline as measureInk, so what you see on
-// screen is byte-for-byte the same as what we measured — zero mismatch.
 function paintLetter(l) {
   const ink = measureInk(l.char, l.fontFamily, l.weight, l.size);
   const dpr = window.devicePixelRatio || 1;
@@ -651,8 +626,7 @@ function tick() {
     l.x += l.vx;
     l.y += l.vy;
 
-    // l.w / l.h are the real ink dimensions (set by paintLetter),
-    // so plain rect-vs-viewport bouncing is sufficient.
+    // l.w / l.h = real ink dimensions (set by paintLetter),
     let bounced = false;
     if (l.x <= 0)             { l.x = 0;          l.vx =  Math.abs(l.vx); bounced = true; }
     if (l.x + l.w >= vw)      { l.x = vw - l.w;   l.vx = -Math.abs(l.vx); bounced = true; }
@@ -713,7 +687,7 @@ async function loadTemplates() {
 
 if (isTouchDevice) loadTemplates();
 
-// Drawing state
+// drawing state
 let strokes = [];
 let currentStroke = null;
 let strokeID = 0;
@@ -781,7 +755,7 @@ function processGesture() {
       flashCanvasRed();
     }
   } else {
-    // No templates: fallback to random spawn
+    // no templates: fallback to random spawn
     const CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
     spawnLetter(CHARS[Math.floor(Math.random() * CHARS.length)]);
     clearDrawCanvas();
@@ -792,10 +766,10 @@ function processGesture() {
 
 if (isTouchDevice) {
   let pendingTap = null;     // { x, y, t } — candidate first tap of a double-tap
-  let activePointerId = null; // track only the first finger; ignore additional touches
+  let activePointerId = null; // solo primo dito poggiato, max 1 input
 
   drawCanvas.addEventListener('pointerdown', (e) => {
-    // Ignore secondary fingers
+    // ignora input altre dita
     if (activePointerId !== null) { e.preventDefault(); return; }
     e.preventDefault();
 
@@ -804,7 +778,7 @@ if (isTouchDevice) {
 
     const now = Date.now();
 
-    // Check for double-tap
+    // check double-tap
     if (pendingTap) {
       const dx = e.clientX - pendingTap.x;
       const dy = e.clientY - pendingTap.y;
@@ -853,7 +827,7 @@ if (isTouchDevice) {
       && strokeLength(lastStroke) < MIN_STROKE_LENGTH;
 
     if (isJustATap) {
-      // First tap of a possible double-tap: remember it, drop the stroke.
+      // first tap of a possible double-tap: remember it, drop the stroke.
       pendingTap = { x, y, t: Date.now() };
       strokes = [];
       clearDrawCanvas();
@@ -864,7 +838,7 @@ if (isTouchDevice) {
       return;
     }
 
-    // Real drawing gesture: brief wait for multistroke continuation, then recognize
+    // real drawing gesture: brief wait for multistroke continuation, then recognize
     multistrokeTimer = setTimeout(() => {
       multistrokeTimer = null;
       processGesture();
