@@ -16,7 +16,7 @@
     @font-face {
       font-family: 'Villette';
       src: url('Villette-VariabileVF.woff2') format('woff2-variations');
-      font-weight: 30;
+      font-weight: 30 280;
       font-style: normal;
     }
     @font-face {
@@ -365,7 +365,7 @@ function Distance(p1, p2) {
 // CONFIG
 // ═════════════════════════════════════════════════════════════════════
 const FONTS = [
-  { family: 'Villette',     label: 'Villette Variabile (WIP)', weightMin: 100, weightMax: 900 },
+  { family: 'Villette',     label: 'Villette Variabile (WIP)', weightSet: [30, 50, 90, 150, 250, 280] },
   { family: 'Matrice Mono', label: 'Matrice Mono',       weightMin: 100, weightMax: 800 },
   /* { family: 'Merlini',    label: 'Merlini',            weightMin: 400, weightMax: 400 }, */
   { family: 'Sera',         label: 'Sera (WIP)',         weightMin: 400, weightMax: 400 },
@@ -464,8 +464,8 @@ async function preloadFonts() {
   if (!document.fonts || !document.fonts.load) return;
   try {
     await Promise.all([
-      document.fonts.load('400 100px "Villette"'),
-      document.fonts.load('900 100px "Villette"'),
+      document.fonts.load('30 100px "Villette"'),
+      document.fonts.load('280 100px "Villette"'),
       document.fonts.load('400 100px "Matrice Mono"'),
       document.fonts.load('400 100px "Sera"'),
       document.fonts.ready,
@@ -520,7 +520,9 @@ const rand    = (a, b) => Math.random() * (b - a) + a;
 const randInt = (a, b) => Math.floor(rand(a, b + 1));
 
 const currentFont  = () => FONTS[fontIndex];
-const pickWeight   = (font) => randInt(font.weightMin, font.weightMax);
+const pickWeight   = (font) => font.weightSet
+  ? font.weightSet[randInt(0, font.weightSet.length - 1)]
+  : randInt(font.weightMin, font.weightMax);
 const updateLabel  = () => { fontNameLabel.textContent = currentFont().label; };
 
 
